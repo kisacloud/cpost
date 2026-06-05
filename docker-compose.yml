@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  cpost-app:
+    build: .
+    container_name: cpost_active
+    # [중요] 서버 재부팅 시 또는 오류 발생 시 자동 재시작
+    restart: always
+    # 호스트 서버와 폴더를 연결하여 데이터와 로그를 보존
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    # .env 파일에서 API 키 로드
+    env_file:
+      - .env
+    environment:
+      # 스케줄러 및 날짜/요일 계산이 어긋나지 않도록 한국 시간대(KST) 강제 지정
+      - TZ=Asia/Seoul
+    # 1GB 마이크로 서버 보호를 위한 자원 할당 제한
+    deploy:
+      resources:
+        limits:
+          memory: 512M
