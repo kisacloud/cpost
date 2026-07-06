@@ -1,5 +1,5 @@
 google-genai
-tavily-python
 python-dotenv
-slack-sdk
+slack_sdk
 schedule
+tavily-python

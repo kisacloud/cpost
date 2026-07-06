@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from google import genai  # [UPDATE] 단종된 google-generativeai 대신 최신 google-genai 사용
+import google.genai as genai # [UPDATE] google-genai SDK 임포트
 
 # 프로젝트 내부 설정 및 전담 모듈 임포트
 from config.config import Config
@@ -70,10 +70,6 @@ class InsightEngine:
         Config.REPORTS[report_type]["DIR"].mkdir(parents=True, exist_ok=True)
         today_str = self.today.strftime("%Y-%m-%d")
 
-        # 🚨 [테스트용] API 할당량 소진 방지를 위해 실제 로직은 건너뛰고 로그만 출력합니다.
-        # logger.info(f"🧪 [TEST] {report_type} 분석 시퀀스 가동 준비 완료")
-        # return
-
         logger.info(f"📝 {report_type} 분석 시퀀스 가동")
 
         try:
@@ -83,8 +79,8 @@ class InsightEngine:
             sector = Config.SCHEDULE_ROUTING.get(weekday, "TECH")
             sector_info = prompts.SECTOR_CONFIG.get(sector)
 
-            # 일간/주간/월간의 경우 누적된 과거 리포트 데이터(config에 설정된 기간)를 로드하여 '흐름'을 파악하게 합니다.
-            past_data = self.reporter.get_accumulated_text(report_type)
+            # 주간/월간의 경우 누적된 과거 리포트 데이터를 로드하여 '흐름'을 파악하게 합니다.
+            past_data = self.reporter.get_accumulated_text(report_type) if report_type != "DAILY" else None
 
             # [Step 2] 분석 전문가에게 통찰 도출 위임 (The Unified Flow)
             # 실시간 데이터와 누적 데이터를 융합하여 전략적 리포트를 생성합니다.
@@ -106,14 +102,14 @@ class InsightEngine:
 
             # [Step 4] 중간 분석 브리핑 (슬랙 실시간 알림)
             # AI가 어떤 가설(미션)을 가지고 심층 분석을 수행했는지 사용자에게 알립니다.
-            # progress_msg = (
-            #     f"🎯 *[{report_type}] 심층 주제 선정:* *'{meta['query']}'*\n"
-            #     f"🧠 *분석 테마:* {meta['theme']}"
-            # )
-            # self.reporter.slack.chat_postMessage(
-            #     channel=Config.REPORTS[report_type]["CHANNEL"],
-            #     text=progress_msg
-            # )
+            progress_msg = (
+                f"🎯 *[{report_type}] 심층 주제 선정:* *'{meta['query']}'*\n"
+                f"🧠 *분석 테마:* {meta['theme']}"
+            )
+            self.reporter.slack.chat_postMessage(
+                channel=Config.REPORTS[report_type]["CHANNEL"],
+                text=progress_msg
+            )
 
             # [Step 5] 최종 결과물 저장 및 슬랙 전송
             # 생성된 전략 리포트를 파일로 보관하고 슬랙 채널에 게시합니다.
@@ -155,41 +151,28 @@ def job():
 
 if __name__ == "__main__":
     try:
-        logger.info("🚀 CPOST 리포트 생성을 시작합니다.")
+        logger.info("⏰ CPOST 스케줄러 데몬을 시작합니다. (매일 08:00 실행 대기)")
 
-        # =========================================================
-        # [운영 모드 1: Batch / Cron 모드] - ✨ 현재 활성화 ✨
-        # - GCP e2-micro (1G RAM) 서버의 자원(메모리) 최적화를 위한 1회성 실행 모드입니다.
-        # - 리눅스의 crontab이 매일 아침 정해진 시간에 이 스크립트를 1번만 실행하고 종료합니다.
-        # - 대기 시간 동안 파이썬이 메모리를 전혀 차지하지 않아 극한의 효율을 자랑합니다.
-        # =========================================================
-        job()
-        logger.info("✅ CPOST 리포트 생성 및 전송 완료. 메모리 반환을 위해 프로세스를 종료합니다.")
+        # 매일 오전 8시에 작업 실행 (요구사항에 맞게 변경 가능)
+        schedule.every().day.at("08:00").do(job)
 
-        # =========================================================
-        # [운영 모드 2: Daemon / Schedule 모드] - 🔒 현재 비활성화 (주석 처리)
-        # - 도커(Docker)를 24시간 띄워두거나, 넉넉한 스펙의 서버에서 사용할 때의 세팅입니다.
-        # - while True 무한 루프가 메모리를 지속적으로 점유하므로, 현재의 1G RAM 환경에서는
-        #   OS(OOM Killer)에 의해 프로세스가 강제 종료될 위험이 있어 잠시 꺼두었습니다.
-        # - 훗날 서버 스펙을 업그레이드하거나 도커 환경으로 복귀할 때 아래 주석을 해제하세요.
-        # =========================================================
-        # logger.info("⏰ CPOST 스케줄러 데몬을 시작합니다.")
-        # schedule.every().day.at("08:00").do(job)
-        #
-        # # 무한 루프를 돌며 스케줄 대기
-        # while True:
-        #     schedule.run_pending()
-        #     time.sleep(60)
-        # =========================================================
+        # 컨테이너 구동 직후 즉시 1회 실행이 필요하다면 아래 주석 해제
+        # job()
+
+        # 무한 루프를 돌며 스케줄 대기 (도커 컨테이너 유지 및 API 과소비 방지)
+        while True:
+            schedule.run_pending()
+            time.sleep(60)
 
         # =========================================================
         # 🧪 [테스트 및 수동 실행 모드]
         # - 특정 주기 리포트를 강제로 생성하고 싶을 때 아래 주석을 해제하세요.
-        # - 실행 후에는 다시 주석 처리해야 다음 날 중복 발행을 방지할 수 있습니다.
+        # - 실행 후에는 다시 주석 처리해야 중복 발행을 방지할 수 있습니다.
+        #
+        # engine.process("WEEKLY")   # 주간 리포트 강제 생성 테스트
+        # engine.process("MONTHLY")  # 월간 리포트 강제 생성 테스트
+
         # =========================================================
-        # engine = ReportDispatcher() # 객체 초기화가 필요하다면 활성화
-        # engine.process("WEEKLY")    # 주간 리포트 강제 생성 테스트
-        # engine.process("MONTHLY")   # 월간 리포트 강제 생성 테스트
     except Exception as e:
         # 복구 불가능한 시스템 레벨 오류 로깅
         logger.critical(f"💀 시스템 구동 불가 (Critical Error): {e}")

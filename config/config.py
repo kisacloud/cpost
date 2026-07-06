@@ -21,6 +21,7 @@ class Config:
     SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN")
     SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET")
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+    SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID")
 
     # --- 🔍 검색 엔진 설정 (자원 50% 집중 투자) ---
     TAVILY = {
@@ -31,9 +32,8 @@ class Config:
 
     # --- 🧠 AI 모델 설정 ---
     # 2026년 기준 가장 안정적인 스테이블 모델 사용
-    MODEL_NAME = "gemini-flash-latest"
-    # MODEL_NAME = "gemini-pro-latest"
-    MAX_OUTPUT_TOKENS = 8192       # 리포트 길이 및 추론량 확보
+    MODEL_NAME = "gemini-2.0-flash-lite"
+    MAX_OUTPUT_TOKENS = 4096       # 리포트 길이 및 추론량 확보
     TEMPERATURE = 0.7              # 분석의 창의성과 논리성 균형
 
     # --- 📂 시스템 경로 설정 ---
@@ -52,19 +52,19 @@ class Config:
             "DIR": DATA_DIR / "daily",
             "RETENTION": 30,          # 30일간 보관
             "LOOKBACK": 3,            # 분석 시 참조할 과거 데이터 개수
-            "CHANNEL": "#dev-test"    # 슬랙 채널명
+            "CHANNEL": SLACK_CHANNEL_ID # 이 부분을 추가하거나 확인합니다.
         },
         "WEEKLY": {
             "DIR": DATA_DIR / "weekly",
             "RETENTION": 90,          # 90일간 보관
             "LOOKBACK": 7,            # 7일치 데이터 통합
-            "CHANNEL": "#dev-test"
+            "CHANNEL": SLACK_CHANNEL_ID # 이 부분을 추가하거나 확인합니다.
         },
         "MONTHLY": {
             "DIR": DATA_DIR / "monthly",
             "RETENTION": 730,         # 2년간 보관
             "LOOKBACK": 8,            # 8주치 데이터 통합
-            "CHANNEL": "#dev-test"
+            "CHANNEL": SLACK_CHANNEL_ID # 이 부분을 추가하거나 확인합니다.
         }
     }
 
