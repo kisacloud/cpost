@@ -146,18 +146,54 @@ class DataCollector:
             )
         return "\n\n".join(lines)
 
+    # core/collector.py 내부의 해당 메서드만 교체합니다.
+    def _search_with_fallback(self, query, search_depth, max_results, topic="general"):
+        """
+        Tavily 검색을 수행합니다. 1차 broad scan 시에는 topic="news"를 사용하여
+        과거 백서가 아닌 실시간 뉴스를 강제 크롤링합니다.
+        """
+        search_days = Config.TAVILY.get("DAYS", 3)
+        start_date = (datetime.now() - timedelta(days=search_days)).strftime("%Y-%m-%d")
+
+        try:
+            logger.info(f"🔍 Tavily 검색 시행 (topic={topic}, start_date={start_date}): {query}")
+            # topic="news"일 때 start_date 파라미터가 정확히 매칭됩니다.
+            return self.tavily.search(
+                query=query,
+                search_depth=search_depth,
+                max_results=max_results,
+                topic=topic,
+                start_date=start_date
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Tavily 표준 검색 실패, 일반 Fallback 모드로 전환: {e}")
+            try:
+                # 실패 시 일반 검색 전 전환하되, 쿼리 내부에 날짜 제약을 강제 주입
+                fallback_query = f"{query} after:{start_date}"
+                return self.tavily.search(
+                    query=fallback_query,
+                    search_depth=search_depth,
+                    max_results=max_results,
+                    topic="general"
+                )
+            except Exception as fallback_error:
+                logger.error(f"❌ Fallback 검색마저 최종 실패: {fallback_error}")
+                return {"results": []}
+
     def get_latest_news_context(self, queries):
-        """1차 광범위 뉴스 수집 (Broad Scan) - 날짜 제한 및 블로그 필터 적용"""
+        """1차 광범위 뉴스 수집 (Broad Scan) - topic='news' 스펙을 적용하여 최신성 확보"""
         all_normalized_items = []
         all_raw_results = []
 
         for query in queries:
             try:
                 refined_query = self._get_dynamic_query(query)
+                # [교정] 1차 스캔은 무조건 최신 뉴스 탭을 뒤지도록 topic="news" 지정
                 search_result = self._search_with_fallback(
                     query=refined_query,
-                    search_depth=Config.TAVILY.get("SEARCH_DEPTH", "basic"),
-                    max_results=Config.TAVILY.get("MAX_RESULTS", 10)
+                    search_depth=Config.TAVILY.get("SEARCH_DEPTH", "advanced"),
+                    max_results=Config.TAVILY.get("MAX_RESULTS", 10),
+                    topic="news"
                 )
 
                 results = search_result.get('results', [])
