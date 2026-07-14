@@ -4,7 +4,8 @@ import time
 import re
 from config.config import Config
 import prompts.base_prompt as prompts
-from google import genai  # 새로운 Google Gen AI SDK 임포트
+import google.genai as genai # 새로운 Google Gen AI SDK 임포트
+from google.api_core import exceptions as google_exceptions
 
 # 시스템 로그 설정: 분석 과정의 주요 단계를 추적합니다.
 logger = logging.getLogger(__name__)
@@ -50,6 +51,30 @@ class ReportAnalyst:
             logger.error(f"❌ JSON 파싱 실패: {e}")
             return None
 
+    def _generate_with_retry(self, operation_name, model, contents, config, max_retries=3):
+        """Gemini API의 일시적 503/과부하 오류에 대해 재시도합니다."""
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(f"🧠 [{operation_name}] 생성 요청 시작 (시도 {attempt}/{max_retries})")
+                return self.client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config
+                )
+            except Exception as e:
+                last_error = e
+                is_transient = isinstance(e, google_exceptions.ServiceUnavailable)
+                if not is_transient or attempt == max_retries:
+                    logger.error(f"❌ [{operation_name}] 생성 실패: {e}")
+                    raise
+                logger.warning(f"⚠️ [{operation_name}] 일시적 오류로 재시도합니다 ({attempt}/{max_retries}): {e}")
+                time.sleep(5)
+
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError(f"[{operation_name}] generation failed")
+
     def run_analysis_flow(self, period_type, collector, sector_info, past_data=None):
         """
         [핵심 메서드] 통합 분석 파이프라인을 실행합니다.
@@ -76,11 +101,10 @@ class ReportAnalyst:
         today_str = Config.get_today_str_korean()
 
         if period_type == "DAILY":
-            # 🚨 데일리에도 과거 데이터를 주입하도록 변수 추가!
+            # 데일리는 오늘의 뉴스 요약과 오늘 날짜를 주입
             mission_prompt = prompts.KEYWORD_EXTRACTION_PROMPT.format(
                 today_date=today_str,
-                news_summary=basic_news[:4000],
-                combined_data=(past_data or "과거 데이터 없음")[:4000]
+                news_summary=basic_news[:4000]
             )
         else:
             # 주간/월간은 오늘 뉴스, 과거 맥락, 그리고 오늘 날짜를 주입
@@ -92,8 +116,8 @@ class ReportAnalyst:
 
         logger.info("🧠 분석 미션 및 심층 쿼리 도출 중...")
 
-        # [변경점] 새로운 SDK 호출 방식: client.models.generate_content
-        mission_res = self.client.models.generate_content(
+        mission_res = self._generate_with_retry(
+            operation_name="mission",
             model=self.model_id,
             contents=mission_prompt,
             config=self.gen_config
@@ -147,8 +171,8 @@ class ReportAnalyst:
         # --- [Step 6] 최종 전략 리포트 합성 (Pass 2) ---
         logger.info(f"✍️ {period_type} 최종 전략 보고서 합성 중...")
 
-        # [변경점] 새로운 SDK 호출 방식 적용
-        final_res = self.client.models.generate_content(
+        final_res = self._generate_with_retry(
+            operation_name="final_report",
             model=self.model_id,
             contents=final_prompt,
             config=self.gen_config
